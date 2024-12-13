@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -29,6 +30,16 @@ type Item struct {
 // In memory storage
 var receiptStorage []Receipt
 
+func CheckAlphanumeric(r *Receipt) int {
+    count := 0
+    for _, s := range r.Retailer {
+        if unicode.IsLetter(s) || unicode.IsDigit(s) {
+            count++
+        }
+    }
+    return count
+}
+
 func CreateIdForReceipt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var newReceipt Receipt
@@ -46,16 +57,52 @@ func CreateIdForReceipt(w http.ResponseWriter, r *http.Request) {
 
 	receiptStorage = append(receiptStorage, newReceipt)
 
+	response := struct {
+		ID string `json:"id"`
+	}{
+		ID: newReceipt.ID,
+	}
+
 	w.WriteHeader(http.StatusCreated)
-	// w.Write([]byte(newReceipt.ID))
-    
-    response := struct {
-        ID string `json:"id"`
-    } {
-        ID: newReceipt.ID,
+	json.NewEncoder(w).Encode(response)
+}
+
+
+func GetPointsById(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+    params := mux.Vars(r)
+    receiptID := params["id"]
+
+	var foundReceipt *Receipt
+    for _, receipt := range receiptStorage {
+        if receipt.ID == receiptID {
+            foundReceipt = &receipt
+            break
+        }
     }
 
-    json.NewEncoder(w).Encode(response)
+    if foundReceipt == nil {
+        http.Error(w, "Receipt not found", http.StatusNotFound)
+        return 
+    }
+
+    // if err := json.NewDecoder(r.Body).Decode(&newReceipt); err != nil {
+    //     http.Error(w, "Invalid Input", http.StatusBadRequest)
+    //     return
+    // }
+
+	checkNameResult := CheckAlphanumeric(foundReceipt)
+	finalPoints := checkNameResult
+
+	response := struct {
+		Points int `json:"points"`
+	}{
+		Points: finalPoints,
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 
 }
 
@@ -68,6 +115,7 @@ func main() {
 
 	r.HandleFunc("/", homePage).Methods("GET")
 	r.HandleFunc("/receipts/process", CreateIdForReceipt).Methods("POST")
+	r.HandleFunc("/receipts/{id}/points", GetPointsById).Methods("GET")
 
 	log.Println("Server is starting on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", r))
